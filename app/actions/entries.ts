@@ -3,39 +3,29 @@
 
 import { revalidatePath } from "next/cache"
 import prisma from "@/lib/db"
-import type { CurrentServerUser } from "@stackframe/stack"
-import { stackServerApp } from "@/stack/server"
+import { auth } from "@/auth"
 
 /* ---------------- AUTH ---------------- */
 
-async function getCurrentUser(): Promise<CurrentServerUser> {
-  const user = await stackServerApp.getUser()
-  if (!user) {
+async function getCurrentUser() {
+  const session = await auth()
+  if (!session?.user?.email) {
     throw new Error("Not authenticated")
+  }
+  return session.user
+}
+
+/* ---------------- GET CURRENT USER DB RECORD ---------------- */
+
+async function getUserFromDb(email: string) {
+  const user = await prisma.user.findUnique({
+    where: { email },
+  })
+  if (!user) {
+    throw new Error("User not found in database")
   }
   return user
 }
-
-/* ---------------- USER DB ---------------- */
-
-async function ensureUserInDb(stackUser: CurrentServerUser) {
-  return prisma.user.upsert({
-    where: {
-      stackAuthId: stackUser.id,
-    },
-    update: {
-      email: stackUser.primaryEmail ?? undefined,
-      name: stackUser.displayName ?? undefined,
-    },
-    create: {
-      stackAuthId: stackUser.id,
-      email: stackUser.primaryEmail,
-      name: stackUser.displayName ?? null,
-    },
-  })
-}
-
-/* ---------------- CREATE ENTRY ---------------- */
 
 export async function createTimeEntry(data: {
   date: Date
@@ -45,8 +35,8 @@ export async function createTimeEntry(data: {
   participated: boolean
   comments?: string
 }) {
-  const stackUser = await getCurrentUser()
-  const user = await ensureUserInDb(stackUser)
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
 
   const hoursWorked =
     (data.timeEnded.getTime() - data.timeStarted.getTime()) /
@@ -76,11 +66,9 @@ export async function createTimeEntry(data: {
   return entry
 }
 
-/* ---------------- READ ---------------- */
-
 export async function getMonthlyEntries(year: number, month: number) {
-  const stackUser = await getCurrentUser()
-  const user = await ensureUserInDb(stackUser)
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
 
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 0, 23, 59, 59)
@@ -112,9 +100,10 @@ export async function getMonthlyReport(year: number, month: number) {
     0
   )
 
+  // Count unique studies case-insensitively
   const uniqueStudies = new Set(
     entries.flatMap((entry) =>
-      entry.studies.map((s) => s.participant)
+      entry.studies.map((s) => s.participant.toLowerCase())
     )
   )
 
@@ -126,11 +115,138 @@ export async function getMonthlyReport(year: number, month: number) {
   }
 }
 
-/* ---------------- DELETE ---------------- */
+export async function getYearlyStats(year: number) {
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
+
+  const startDate = new Date(year, 0, 1)
+  const endDate = new Date(year, 11, 31, 23, 59, 59)
+
+  const entries = await prisma.timeEntry.findMany({
+    where: {
+      userId: user.id,
+      date: {
+        gte: startDate,
+        lte: endDate,
+      },
+    },
+    include: {
+      studies: true,
+    },
+  })
+
+  const totalHours = entries.reduce(
+    (sum, entry) => sum + entry.hoursWorked,
+    0
+  )
+
+  // Count unique studies case-insensitively
+  const uniqueStudies = new Set(
+    entries.flatMap((entry) =>
+      entry.studies.map((s) => s.participant.toLowerCase())
+    )
+  )
+
+  return {
+    totalHours: Math.round(totalHours * 10) / 10,
+    studiesCount: uniqueStudies.size,
+    entriesCount: entries.length,
+  }
+}
+
+export async function searchEntriesByParticipant(year: number, participantName: string) {
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
+
+  if (!participantName.trim()) {
+    return []
+  }
+
+  const startDate = new Date(year, 0, 1)
+  const endDate = new Date(year, 11, 31, 23, 59, 59)
+
+  const entries = await prisma.timeEntry.findMany({
+    where: {
+      userId: user.id,
+      date: {
+        gte: startDate,
+        lte: endDate,
+      },
+      studies: {
+        some: {
+          participant: {
+            contains: participantName,
+            mode: "insensitive",
+          },
+        },
+      },
+    },
+    include: {
+      studies: true,
+    },
+    orderBy: {
+      date: "desc",
+    },
+  })
+
+  return entries
+}
+
+export async function updateTimeEntry(entryId: string, data: {
+  date: Date
+  timeStarted: Date
+  timeEnded: Date
+  studies: string[]
+  participated: boolean
+  comments?: string
+}) {
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
+
+  const entry = await prisma.timeEntry.findUnique({
+    where: { id: entryId },
+  })
+
+  if (!entry || entry.userId !== user.id) {
+    throw new Error("Entry not found or not authorized")
+  }
+
+  const hoursWorked =
+    (data.timeEnded.getTime() - data.timeStarted.getTime()) /
+    (1000 * 60 * 60)
+
+  // Delete old studies and create new ones
+  await prisma.study.deleteMany({
+    where: { entryId },
+  })
+
+  const updatedEntry = await prisma.timeEntry.update({
+    where: { id: entryId },
+    data: {
+      date: data.date,
+      timeStarted: data.timeStarted,
+      timeEnded: data.timeEnded,
+      hoursWorked,
+      participated: data.participated,
+      comments: data.comments,
+      studies: {
+        create: data.studies.map((participant) => ({
+          participant,
+        })),
+      },
+    },
+    include: {
+      studies: true,
+    },
+  })
+
+  revalidatePath("/")
+  return updatedEntry
+}
 
 export async function deleteTimeEntry(entryId: string) {
-  const stackUser = await getCurrentUser()
-  const user = await ensureUserInDb(stackUser)
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
 
   const entry = await prisma.timeEntry.findUnique({
     where: { id: entryId },
@@ -147,17 +263,12 @@ export async function deleteTimeEntry(entryId: string) {
   revalidatePath("/")
 }
 
-/* ---------------- CURRENT USER ---------------- */
-
 export async function getCurrentUserInfo() {
-  const stackUser = await getCurrentUser()
-  const user = await ensureUserInDb(stackUser)
+  const currentUser = await getCurrentUser()
+  const user = await getUserFromDb(currentUser.email!)
 
   return {
     id: user.id,
-    displayName:
-      stackUser.displayName ??
-      stackUser.primaryEmail ??
-      "User",
+    displayName: user.name ?? currentUser.email ?? "User",
   }
 }

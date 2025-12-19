@@ -1,27 +1,41 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSession, signOut } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import { TimeEntryForm } from "@/components/time-entry-form"
 import { MonthlyStats } from "@/components/monthly-stats"
+import { YearlyStats } from "@/components/yearly-stats"
 import { EntryList } from "@/components/entry-list"
 import { MonthSelector } from "@/components/month-selector"
 import { MonthlyReport } from "@/components/monthly-report"
+import { ParticipantSearch } from "@/components/participant-search"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { getMonthlyReport } from "@/app/actions/entries"
-import { Loader2 } from "lucide-react"
-import { UserButton, useUser } from "@stackframe/stack"
+import { getMonthlyReport, getYearlyStats } from "@/app/actions/entries"
+import { Loader2, LogOut } from "lucide-react"
 
 export default function HomeContent() {
-  const user = useUser()
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [report, setReport] = useState<any>(null)
+  const [yearlyStats, setYearlyStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [yearlyLoading, setYearlyLoading] = useState(true)
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/signin")
+    }
+  }, [status, router])
 
   useEffect(() => {
-    if (!user) {
+    if (!session?.user) {
       setLoading(false)
+      setYearlyLoading(false)
       return
     }
 
@@ -38,7 +52,28 @@ export default function HomeContent() {
     }
 
     loadReport()
-  }, [user, year, month])
+  }, [session?.user, year, month])
+
+  useEffect(() => {
+    if (!session?.user) {
+      setYearlyLoading(false)
+      return
+    }
+
+    const loadYearlyStats = async () => {
+      setYearlyLoading(true)
+      try {
+        const data = await getYearlyStats(year)
+        setYearlyStats(data)
+      } catch (error) {
+        console.error("Failed to load yearly stats:", error)
+      } finally {
+        setYearlyLoading(false)
+      }
+    }
+
+    loadYearlyStats()
+  }, [session?.user, year])
 
   const handleMonthChange = (newYear: number, newMonth: number) => {
     setYear(newYear)
@@ -46,37 +81,27 @@ export default function HomeContent() {
   }
 
   const refreshReport = async () => {
-    if (!user) return
+    if (!session?.user) return
     const data = await getMonthlyReport(year, month)
     setReport(data)
+    // Also refresh yearly stats
+    const yearData = await getYearlyStats(year)
+    setYearlyStats(yearData)
   }
 
-  if (!user) {
+  if (status === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="container max-w-md mx-auto px-4 py-8 text-center space-y-6">
-          <div className="space-y-2">
-            <h1 className="text-4xl font-bold tracking-tight">Field Service Report</h1>
-            <p className="text-muted-foreground">Track your ministry time and activities</p>
-          </div>
-          <div className="bg-card rounded-lg border p-6 space-y-4">
-            <p className="text-sm text-muted-foreground">Sign in to access your personal field service records</p>
-            <Button asChild className="w-full" size="lg">
-              <a href="/handler/sign-in">Sign In</a>
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Don&apos;t have an account?{" "}
-              <a href="/handler/sign-up" className="text-primary hover:underline">
-                Sign up
-              </a>
-            </p>
-          </div>
-        </div>
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
-  const userName = user.displayName || user.primaryEmail || "User"
+  if (!session?.user) {
+    return null // Will redirect in useEffect
+  }
+
+  const userName = session.user.name || session.user.email || "User"
 
   return (
     <div className="min-h-screen bg-background">
@@ -102,13 +127,21 @@ export default function HomeContent() {
               </span>
             </p>
           </div>
-          <UserButton />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => signOut({ redirectTo: "/signin" })}
+            className="flex items-center gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </Button>
         </div>
 
         {/* Month Selector */}
         <MonthSelector year={year} month={month} onMonthChange={handleMonthChange} />
 
-        {/* Stats */}
+        {/* Monthly Stats */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -123,9 +156,10 @@ export default function HomeContent() {
 
         {/* Tabs */}
         <Tabs defaultValue="log" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="log">Log Time</TabsTrigger>
             <TabsTrigger value="entries">View Entries</TabsTrigger>
+            <TabsTrigger value="search">Search</TabsTrigger>
             <TabsTrigger value="report">Report</TabsTrigger>
           </TabsList>
 
@@ -139,8 +173,12 @@ export default function HomeContent() {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : report ? (
-              <EntryList entries={report.entries} onDelete={refreshReport} />
+              <EntryList entries={report.entries} onDelete={refreshReport} onUpdate={refreshReport} />
             ) : null}
+          </TabsContent>
+
+          <TabsContent value="search" className="space-y-4">
+            <ParticipantSearch year={year} />
           </TabsContent>
 
           <TabsContent value="report" className="space-y-2">
@@ -157,6 +195,7 @@ export default function HomeContent() {
                 participated={report.participated}
                 entries={report.entries}
                 userName={userName}
+                yearlyStats={yearlyStats}
               />
             ) : null}
           </TabsContent>

@@ -2,10 +2,11 @@
 
 import { useState } from "react"
 import { format } from "date-fns"
-import { Calendar, Clock, Trash2, User } from "lucide-react"
+import { Calendar, Clock, Edit, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { deleteTimeEntry } from "@/app/actions/entries"
+import { EditTimeEntryDialog } from "@/components/edit-time-entry-dialog"
 
 interface Study {
   id: string
@@ -19,27 +20,42 @@ interface Entry {
   timeEnded: Date
   hoursWorked: number
   studies: Study[]
+  participated: boolean
   comments?: string | null
 }
 
 interface EntryListProps {
   entries: Entry[]
-  onDelete?: () => void // Added onDelete callback
+  onDelete?: () => void
+  onUpdate?: () => void
 }
 
-export function EntryList({ entries, onDelete }: EntryListProps) {
+export function EntryList({ entries, onDelete, onUpdate }: EntryListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingEntry, setEditingEntry] = useState<Entry | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
   const handleDelete = async (entryId: string) => {
     setDeletingId(entryId)
     try {
       await deleteTimeEntry(entryId)
-      onDelete?.() // Call onDelete to refresh the list
+      onDelete?.()
     } catch (error) {
       console.error("Failed to delete entry:", error)
     } finally {
       setDeletingId(null)
     }
+  }
+
+  const handleEdit = (entry: Entry) => {
+    setEditingEntry(entry)
+    setIsEditDialogOpen(true)
+  }
+
+  const handleEditSuccess = () => {
+    setIsEditDialogOpen(false)
+    setEditingEntry(null)
+    onUpdate?.()
   }
 
   if (entries.length === 0) {
@@ -55,86 +71,88 @@ export function EntryList({ entries, onDelete }: EntryListProps) {
   }
 
   return (
-  <div className="space-y-3">
-    {entries.map((entry) => (
-      <Card
-        key={entry.id}
-        className="border-border/40 hover:border-border"
-      >
-        <CardContent className="py-3">
-          <div className="flex items-start justify-between">
-            
-            {/* LEFT SIDE */}
-            <div className="space-y-2">
-              {/* DATE */}
-              <div className="flex items-center gap-1 text-sm font-medium">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                {format(new Date(entry.date), "EEEE, MMM d")}
-              </div>
-
-              {/* TIME */}
-              <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                {format(new Date(entry.timeStarted), "h:mm a")} –{" "}
-                {format(new Date(entry.timeEnded), "h:mm a")}
-              </div>
-
-              {/* STUDY CHIPS */}
-
-              
-                {entry.studies.length > 0 && (
-                  <div className="text-xs text-muted-foreground">
-                    {entry.studies.length}{" "}
-                    {entry.studies.length === 1 ? "study" : "studies"}
+    <>
+      <div className="space-y-3">
+        {entries.map((entry) => (
+          <Card key={entry.id} className="border-border/40 hover:border-border">
+            <CardContent className="py-3">
+              <div className="flex items-start justify-between">
+                {/* LEFT SIDE */}
+                <div className="space-y-2">
+                  {/* DATE */}
+                  <div className="flex items-center gap-1 text-sm font-medium">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    {format(new Date(entry.date), "EEEE, MMM d")}
                   </div>
-                )}
 
+                  {/* TIME */}
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    {format(new Date(entry.timeStarted), "h:mm a")} –{" "}
+                    {format(new Date(entry.timeEnded), "h:mm a")}
+                  </div>
 
-              {entry.studies.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {entry.studies.map((study) => (
-                    <div
-                      key={study.id}
-                      className="flex items-center gap-1.5 rounded-full bg-cyan-100 px-3 py-1 text-xs font-medium text-cyan-800"
-                    >
-                      <User className="h-3 w-3" />
-                      {study.participant}
+                  {/* STUDY CHIPS */}
+                  {entry.studies.length > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      {entry.studies.length} {entry.studies.length === 1 ? "study" : "studies"}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  )}
 
-            {/* RIGHT SIDE */}
-            <div className="flex items-start gap-3">
-              <div className="text-right">
-                <div className="text-lg font-bold text-blue-600">
-                  {entry.hoursWorked.toFixed(1)} hrs
+                  {entry.studies.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {entry.studies.map((study) => (
+                        <div
+                          key={study.id}
+                          className="flex items-center gap-1.5 rounded-full bg-cyan-100 px-3 py-1 text-xs font-medium text-cyan-800"
+                        >
+                          <User className="h-3 w-3" />
+                          {study.participant}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
+                {/* RIGHT SIDE */}
+                <div className="flex items-start gap-2">
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-blue-600">{entry.hoursWorked.toFixed(1)} hrs</div>
+                  </div>
+
+                  {/* EDIT */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-primary"
+                    onClick={() => handleEdit(entry)}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+
+                  {/* DELETE */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDelete(entry.id)}
+                    disabled={deletingId === entry.id}
+                  >
+                    <Trash2 className={`h-4 w-4 ${deletingId === entry.id ? "animate-pulse" : ""}`} />
+                  </Button>
+                </div>
               </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-              {/* DELETE */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive"
-                onClick={() => handleDelete(entry.id)}
-                disabled={deletingId === entry.id}
-              >
-                <Trash2
-                  className={`h-4 w-4 ${
-                    deletingId === entry.id ? "animate-pulse" : ""
-                  }`}
-                />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    ))}
-  </div>
-)
-
-
+      <EditTimeEntryDialog
+        isOpen={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        entry={editingEntry}
+        onSuccess={handleEditSuccess}
+      />
+    </>
+  )
 }

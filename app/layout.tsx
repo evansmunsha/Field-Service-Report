@@ -1,6 +1,5 @@
 // app/layout.tsx
-import { StackProvider, StackTheme } from "@stackframe/stack";
-import { stackClientApp } from "../stack/client";
+import { SessionProvider } from "next-auth/react"
 import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
@@ -27,11 +26,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased"><StackProvider app={stackClientApp}><StackTheme>
-        {/* Keep layout fully server-rendered */}
-        {children}
-        <Analytics />
-      </StackTheme></StackProvider></body>
+      <body className="font-sans antialiased">
+        <SessionProvider>
+          {/* Keep layout fully server-rendered */}
+          {children}
+          <Analytics />
+        </SessionProvider>
+      </body>
     </html>
   )
 }
