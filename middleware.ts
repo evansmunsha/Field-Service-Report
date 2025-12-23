@@ -5,7 +5,7 @@ export function middleware(request: NextRequest) {
 
   // If no session and trying to access protected route, redirect to signin
   if (!token && !request.nextUrl.pathname.startsWith("/signin") && !request.nextUrl.pathname.startsWith("/signup")) {
-    return NextResponse.redirect(new URL("/", request.url))
+    return NextResponse.redirect(new URL("/signup", request.url))
   }
 
   return NextResponse.next()
