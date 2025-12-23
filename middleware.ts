@@ -1,8 +1,12 @@
-import NextAuth from "next-auth"
-import { authConfig } from "./auth.config"
+// middleware.ts
 
-export const { auth: middleware } = NextAuth(authConfig)
+import { auth } from "./auth"
+
+export default auth
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    // protect all routes except API, _next/static, _next/image, favicon.ico
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
+  ],
 }
