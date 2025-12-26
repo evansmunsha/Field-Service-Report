@@ -5,6 +5,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
+import Script from "next/script";
+
 
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
@@ -82,6 +84,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </Head>
       <body className="font-sans antialiased">
         <SessionProvider>{children}<Analytics /></SessionProvider>
+        <Script
+          id="register-sw"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+                navigator.serviceWorker.register('/sw.js')
+                  .then((registration) => {
+                    console.log('Service Worker registered:', registration);
+                  })
+                  .catch((error) => {
+                    console.log('Service Worker registration failed:', error);
+                  });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );
