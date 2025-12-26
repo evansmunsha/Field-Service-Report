@@ -2,29 +2,30 @@
 
 ## Project Overview
 
-**Field Service Report** is a Next.js (App Router) web application for tracking field service time, Bible studies, and generating monthly ministry reports. It uses Stack Auth for authentication, PostgreSQL (Neon) via Prisma for data persistence, and Tailwind CSS + shadcn/ui for the frontend.
+**Field Service Report** is a Next.js (App Router) web application for tracking field service time, Bible studies, and generating monthly ministry reports. It uses NextAuth.js for authentication, PostgreSQL (Neon) via Prisma for data persistence, and Tailwind CSS + shadcn/ui for the frontend.
 
 **Key constraint**: This is a privacy-focused, open-source project with no payments/subscriptions. All features must remain free and user-centric.
 
 ## Architecture & Data Flow
 
-### Authentication Layer (Stack Auth)
-- **Setup**: [../stack/client.tsx](../stack/client.tsx) (client-side) and [../stack/server.tsx](../stack/server.tsx) (server-side) initialize Stack Auth
-- **Pattern**: Every server action calls `getCurrentUser()` from Stack Auth first, then syncs the user to the database via `ensureUserInDb()`
+### Authentication Layer (NextAuth.js)
+- **Setup**: [../auth.ts](../auth.ts) contains NextAuth.js configuration with credentials provider
+- **Pattern**: Every server action calls `auth()` from NextAuth.js first, then validates the user exists in the database via `getUserFromDb()`
 - **Location**: [../app/actions/entries.ts](../app/actions/entries.ts) contains the auth flow template
-- **Key**: Always upsert users when creating data - ensures Stack Auth ID is linked to the local User record
+- **Key**: Always validate users when creating data - ensures NextAuth session is linked to the local User record
+- **Password Reset**: No-email flow using reset tokens displayed on screen
 
 ### Database Schema (Prisma)
 - **File**: [../prisma/schema.prisma](../prisma/schema.prisma)
-- **Core models**: User (linked to Stack Auth via `stackAuthId`), TimeEntry (with date/time fields and hours calculated), Study (nested in TimeEntry)
+- **Core models**: User (with resetToken fields for password reset), TimeEntry (with date/time fields and hours calculated), Study (nested in TimeEntry)
 - **Indexes**: `TimeEntry` has composite index on `[userId, date]` for fast monthly queries
 - **Cascade deletes**: TimeEntry and Study cascade on User/TimeEntry deletion
 
 ### Server Actions & Data Fetching
 - **Location**: [../app/actions/entries.ts](../app/actions/entries.ts) - contains all server actions for CRUD operations
-- **Pattern**: Client components import these actions and invoke them directly (not via API routes)
+- **Pattern**: Client components import these actions and invoke them directly (also uses API routes for auth endpoints)
 - **Revalidation**: All mutations call `revalidatePath("/")` to clear Next.js cache and trigger re-renders
-- **Why no API routes**: Stack Auth integrates seamlessly with server actions; simpler architecture
+- **API Routes**: Used for authentication endpoints (forgot-password, reset-password)
 
 ### Client Components & Forms
 - **Form library**: React Hook Form + Zod validation
@@ -33,8 +34,8 @@
 - **UI library**: [../components/ui/](../components/ui/) contains shadcn/ui primitives (Button, Card, Dialog, Calendar, etc.)
 
 ### Layout & Theming
-- **Root layout**: [../app/layout.tsx](../app/layout.tsx) wraps everything in `<StackProvider>` and `<StackTheme>`
-- **Theme provider**: Uses Stack Auth's built-in theme system (respects prefers-color-scheme)
+- **Root layout**: [../app/layout.tsx](../app/layout.tsx) wraps everything in `<SessionProvider>` from NextAuth.js
+- **Theme provider**: Uses system theme preference
 - **Analytics**: Vercel Analytics integrated at root level
 
 ## Developer Workflows
@@ -62,8 +63,8 @@ pnpm lint             # Run ESLint
 
 ### Debugging Tips
 - Check `.env` file for `DATABASE_URL` (must be valid PostgreSQL connection string)
-- Stack Auth credentials (Project ID, Publishable Key, Secret Key) in `.env` - these are required for auth to work
-- If auth fails: verify `NEXT_PUBLIC_STACK_PROJECT_ID` matches your Stack Auth project
+- NextAuth credentials (NEXTAUTH_SECRET, NEXTAUTH_URL) in `.env` - these are required for auth to work
+- If auth fails: verify NextAuth configuration in `auth.ts`
 - Database connection issues: test with `DATABASE_URL_UNPOOLED` first (some tools require non-pooled connections)
 
 ## Key Patterns & Conventions
@@ -85,7 +86,7 @@ pnpm lint             # Run ESLint
 
 ### User Data Isolation
 - Every query must filter by `userId` - use composite index on `[userId, date]`
-- Never trust client input for user ID; always derive from Stack Auth in server actions
+- Never trust client input for user ID; always derive from NextAuth session in server actions
 - Example: `prisma.timeEntry.findMany({ where: { userId: user.id, date: { ... } } })`
 
 ### Component Organization
@@ -94,10 +95,16 @@ pnpm lint             # Run ESLint
 - **Pages**: [../app/](../app/) with App Router structure (page.tsx, layout.tsx per folder)
 - **Server utilities**: [../lib/](../lib/) (db.ts singleton, utils.ts helpers)
 
+### Password Reset Flow
+- **No email required**: Tokens are displayed on screen instead of emailed
+- **API endpoints**: `/api/auth/forgot-password` and `/api/auth/reset-password`
+- **Frontend pages**: `/forgot-password` and `/reset-password`
+- **Security**: Tokens expire in 1 hour, stored in database with expiry timestamp
+
 ## External Dependencies & Integration Points
 
 - **Next.js 16** (App Router, server actions, streaming)
-- **Stack Auth** - handles identity, session tokens stored in cookies via `tokenStore: "nextjs-cookie"`
+- **NextAuth.js v5** - handles identity, session tokens stored in cookies
 - **Prisma 7** with PgAdapter - uses native PostgreSQL adapter for performance
 - **shadcn/ui** - un-opinionated, copy-paste UI components built on Radix UI
 - **React Hook Form + Zod** - form state and validation
@@ -111,17 +118,21 @@ pnpm lint             # Run ESLint
 ```
 app/                          # App Router pages & layouts
   actions/entries.ts          # Server actions for CRUD
+  api/auth/                   # Authentication API routes
   page.tsx                    # Home page (entry form)
+  signin/, signup/            # Auth pages
+  forgot-password/            # Password reset request
+  reset-password/             # Password reset form
   about/, privacy/, terms/    # Static pages
 components/                   # React components
   time-entry-form.tsx         # Main form component
   monthly-report.tsx          # Report generator
   ui/                         # shadcn/ui primitives
-stack/                        # Auth setup (client + server)
-prisma/                       # Prisma schema
+prisma/                       # Prisma schema and migrations
 lib/                          # Utilities
   db.ts                       # Prisma singleton with PgAdapter
   utils.ts                    # General helpers (cn(), formatting)
+auth.ts                       # NextAuth.js configuration
 ```
 
 ## Common Tasks for AI Agents
@@ -134,9 +145,15 @@ lib/                          # Utilities
 5. Update form component to render new field
 
 ### Creating a New Server Action
-- Template: [../app/actions/entries.ts](../app/actions/entries.ts) - always call `getCurrentUser()` first and `ensureUserInDb()` before creating/updating data
+- Template: [../app/actions/entries.ts](../app/actions/entries.ts) - always call `auth()` first and `getUserFromDb()` before creating/updating data
 - End with `revalidatePath("/")` to invalidate cache
 - Wrap in try/catch at component level
+
+### Creating a New API Route
+- Template: [../app/api/auth/forgot-password/route.ts](../app/api/auth/forgot-password/route.ts)
+- Use proper HTTP methods (GET, POST, etc.)
+- Always validate input data
+- Return proper HTTP status codes
 
 ### Querying Monthly Data
 - Filter by date range: `prisma.timeEntry.findMany({ where: { userId, date: { gte: monthStart, lt: monthEnd } } })`

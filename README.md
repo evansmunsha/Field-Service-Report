@@ -1,4 +1,4 @@
-# Field Service Report
+# Field Service Reports
 
 A free, open-source web app for recording and reviewing monthly field service activity.
 
@@ -28,7 +28,7 @@ Many people need a clean and reliable way to keep accurate field service records
 ## Tech Stack
 
 - **Framework:** Next.js (App Router)
-- **Authentication:** Stack Auth
+- **Authentication:** NextAuth.js
 - **Database:** PostgreSQL (Neon) with Prisma
 - **Styling:** Tailwind CSS
 - **UI Components:** shadcn/ui

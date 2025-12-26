@@ -1,71 +1,89 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { signIn } from "next-auth/react"
-import { useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { toast } from "sonner"
+import { useState } from "react";
+import { signIn } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 export default function SigninPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get("callbackUrl") || "/"
-  const [isLoading, setIsLoading] = useState(false)
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
-  })
-  const [error, setError] = useState("")
+  });
+  const [error, setError] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
-    setError("")
-  }
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setError("");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+    e.preventDefault();
+    setError("");
 
     if (!formData.email || !formData.password) {
-      setError("Please enter email and password")
-      return
+      setError("Please enter email and password");
+      return;
     }
 
-    setIsLoading(true)
+    setIsLoading(true);
 
     try {
       const result = await signIn("credentials", {
         email: formData.email,
         password: formData.password,
         redirect: false,
-      })
+      });
 
       if (result?.error) {
-        setError(result.error)
-        return
+        setError(result.error);
+        return;
       }
 
-      toast.success("Signed in successfully!")
-      router.push(callbackUrl)
+      toast.success("Signed in successfully!");
+      router.push(callbackUrl);
     } catch (err) {
-      setError("Failed to sign in. Please try again.")
-      console.error(err)
+      setError("Failed to sign in. Please try again.");
+      console.error(err);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md border-border/40">
-        <CardHeader>
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-4">
+            <Image
+              src="/logo.png"
+              alt="Field Service Report"
+              width={64}
+              height={64}
+              className="mx-auto rounded-lg"
+            />
+          </div>
           <CardTitle className="text-2xl">Sign In</CardTitle>
-          <CardDescription>Welcome back to Field Service Reports</CardDescription>
+          <CardDescription>
+            Welcome back to Field Service Reports
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -104,14 +122,27 @@ export default function SigninPage() {
             </Button>
           </form>
 
-          <p className="text-sm text-muted-foreground text-center mt-4">
-            Don't have an account?{" "}
-            <Link href="/signup" className="text-foreground hover:underline font-medium">
-              Create one
-            </Link>
-          </p>
+          <div className="space-y-2 mt-4">
+            <p className="text-sm text-muted-foreground text-center">
+              <Link
+                href="/forgot-password"
+                className="text-foreground hover:underline font-medium"
+              >
+                Forgot your password?
+              </Link>
+            </p>
+            <p className="text-sm text-muted-foreground text-center">
+              Don&apos;t have an account?{" "}
+              <Link
+                href="/signup"
+                className="text-foreground hover:underline font-medium"
+              >
+                Create one
+              </Link>
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
